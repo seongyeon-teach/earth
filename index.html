@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우리동네 초록 공원 가꾸기</title>
+    <!-- Tailwind CSS 및 이쁜 폰트 로드 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Gaegu', 'Malgun Gothic', sans-serif;
+            background-color: #f0fdf4;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        /* 캔버스 터치 스크롤 방지 및 스타일링 */
+        canvas {
+            touch-action: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-between min-h-screen p-4 pb-8 text-slate-800">
+
+    <!-- 상단 헤더 영역 -->
+    <header class="text-center w-full max-w-md mt-2">
+        <h1 class="text-3xl md:text-4xl font-bold text-emerald-800 drop-shadow-sm flex justify-center items-center gap-1">
+            <span>🌳</span> 우리동네 초록 공원 가꾸기 <span>🌳</span>
+        </h1>
+        <p class="text-lg md:text-xl text-emerald-600 mt-1 font-semibold">
+            아래 공원의 쓰레기들을 터치해서 깨끗하게 치워주세요!
+        </p>
+    </header>
+
+    <!-- 스코어보드 및 메인 게임 판 -->
+    <main class="w-full max-w-md flex flex-col items-center my-4 relative">
+        <!-- 상단 스코어바 -->
+        <div class="w-full bg-white rounded-2xl shadow-md border-4 border-emerald-400 p-3 mb-4 flex justify-between items-center px-6">
+            <span class="text-xl md:text-2xl font-bold text-emerald-700 flex items-center gap-2">
+                🧹 깨끗해진 곳:
+            </span>
+            <div class="text-2xl md:text-3xl font-bold text-emerald-600">
+                <span id="scoreVal" class="text-3xl text-orange-500">0</span> / 5
+            </div>
+        </div>
+
+        <!-- 게임 캔버스 컨테이너 -->
+        <div class="relative w-full aspect-[9/10] bg-emerald-100 rounded-3xl border-8 border-emerald-600 shadow-xl overflow-hidden">
+            <canvas id="parkCanvas" class="w-full h-full block bg-emerald-200"></canvas>
+        </div>
+    </main>
+
+    <!-- 하단 발자국 정보 -->
+    <footer class="text-center text-emerald-700 font-semibold text-base md:text-lg">
+        초록 요정이 다음 비밀 숫자를 준비하며 여러분을 기다려요!
+    </footer>
+
+    <!-- 커스텀 모달 (결과 창 - alert 대체) -->
+    <div id="successModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-3xl border-8 border-yellow-400 p-6 max-w-xs w-full text-center shadow-2xl transform scale-90 transition-transform duration-300 relative">
+            <!-- 요정 장식 반짝이 효과 -->
+            <div class="absolute -top-12 left-1/2 -translate-x-1/2 text-6xl animate-bounce">🧚‍♂️</div>
+            
+            <h2 class="text-3xl font-bold text-yellow-600 mb-2 mt-4">참 잘했어요! 🎉</h2>
+            <p class="text-lg md:text-xl text-slate-700 mb-6 leading-relaxed">
+                공원이 반짝반짝 깨끗해졌어요!<br>
+                요정이 기뻐하며 <span class="text-2xl text-emerald-600 font-bold">다음 숫자</span>를 알려주었답니다!
+            </p>
+            
+            <button id="restartBtn" class="w-full bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-bold text-2xl py-3 px-6 rounded-2xl shadow-lg border-b-4 border-emerald-700 transition-all duration-150">
+                한 번 더 하기 🔄
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("parkCanvas");
+        const ctx = canvas.getContext("2d");
+        const scoreVal = document.getElementById("scoreVal");
+        const successModal = document.getElementById("successModal");
+        const restartBtn = document.getElementById("restartBtn");
+
+        // 캔버스 크기 제어 (반응형 대응)
+        function resizeCanvas() {
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+        }
+
+        let score = 0;
+        let trashItems = [];
+        let particles = []; // 터치 시 나오는 이펙트 보관함
+        let flowers = [];   // 배경을 장식할 알록달록 꽃들
+
+        // 쓰레기 종류별 그리기 디자인
+        // 0: 플라스틱 병, 1: 음료수 캔, 2: 찌그러진 종이, 3: 바나나 껍질, 4: 유리병
+        const trashTypes = [
+            {
+                name: "plastic_bottle",
+                draw: (ctx, x, y, size) => {
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.rotate(0.3);
+                    // 투명 플라스틱 몸체
+                    ctx.fillStyle = "rgba(200, 230, 255, 0.85)";
+                    ctx.strokeStyle = "#4ea8de";
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.roundRect(-size/3, -size/2, (size*2)/3, size, 4);
+                    ctx.fill();
+                    ctx.stroke();
+                    // 병뚜껑
+                    ctx.fillStyle = "#ff5d8f";
+                    ctx.fillRect(-size/6, -size/2 - 4, size/3, 5);
+                    // 라벨
+                    ctx.fillStyle = "#56cfe1";
+                    ctx.fillRect(-size/3 + 1, -size/8, (size*2)/3 - 2, size/4);
+                    ctx.restore();
+                }
+            },
+            {
+                name: "can",
+                draw: (ctx, x, y, size) => {
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.rotate(-0.4);
+                    // 캔 몸통
+                    ctx.fillStyle = "#d3d3d3";
+                    ctx.strokeStyle = "#708090";
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.roundRect(-size/3, -size/2, (size*2)/3, size, 5);
+                    ctx.fill();
+                    ctx.stroke();
+                    // 캔 윗부분 은색 메탈
+                    ctx.fillStyle = "#a9a9a9";
+                    ctx.fillRect(-size/3 + 2, -size/2, (size*2)/3 - 4, 3);
+                    // 찌그러진 빨간색 무늬
+                    ctx.fillStyle = "#e63946";
+                    ctx.beginPath();
+                    ctx.moveTo(-size/3 + 1, -size/6);
+                    ctx.lineTo(size/3 - 1, -size/12);
+                    ctx.lineTo(size/3 - 1, size/4);
+                    ctx.lineTo(-size/3 + 1, size/8);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                }
+            },
+            {
+                name: "crushed_paper",
+                draw: (ctx, x, y, size) => {
+                    ctx.save();
+                    ctx.translate(x, y);
+                    // 구겨진 종이뭉치 다각형 표현
+                    ctx.fillStyle = "#f4f1de";
+                    ctx.strokeStyle = "#b7b7a4";
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -size/2);
+                    ctx.lineTo(size/2, -size/3);
+                    ctx.lineTo(size/3, size/3);
+                    ctx.lineTo(-size/4, size/2);
+                    ctx.lineTo(-size/2, size/6);
+                    ctx.lineTo(-size/3, -size/3);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    // 구김선 그리기
+                    ctx.strokeStyle = "#a3b18a";
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(-size/4, -size/4); ctx.lineTo(size/4, size/4);
+                    ctx.moveTo(size/4, -size/4); ctx.lineTo(-size/4, size/4);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            },
+            {
+                name: "banana",
+                draw: (ctx, x, y, size) => {
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.strokeStyle = "#fca311";
+                    ctx.fillStyle = "#ffb703";
+                    ctx.lineWidth = 2;
+                    // 노란색 바나나 껍질 곡선들
+                    ctx.beginPath();
+                    ctx.arc(0, 0, size/2, 0.2, Math.PI - 0.2, false);
+                    ctx.quadraticCurveTo(0, size/4, -size/2, 0);
+                    ctx.fill();
+                    ctx.stroke();
+                    // 윗꼭지 부분 갈색
+                    ctx.fillStyle = "#7f5539";
+                    ctx.beginPath();
+                    ctx.arc(size/2 - 2, size/8, 4, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+            },
+            {
+                name: "snack_bag",
+                draw: (ctx, x, y, size) => {
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.rotate(0.15);
+                    // 반짝이는 과자 봉투
+                    ctx.fillStyle = "#ffb3c1";
+                    ctx.strokeStyle = "#ff758f";
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.moveTo(-size/2, -size/3);
+                    ctx.lineTo(size/2, -size/3);
+                    ctx.lineTo(size/3, size/2);
+                    ctx.lineTo(-size/3, size/2);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                    // 봉투 끝 지그재그 느낌 선
+                    ctx.strokeStyle = "#ff4d6d";
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(-size/2, -size/3);
+                    ctx.lineTo(size/2, -size/3);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        ];
+
+        // 파티클 생성 함수 (터치 시 터져나오는 반짝이)
+        function createParticles(x, y, color) {
+            for (let i = 0; i < 12; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 6,
+                    vy: (Math.random() - 0.5) * 6 - 2, // 위로 살짝 뜨는 힘 추가
+                    size: Math.random() * 6 + 4,
+                    color: color,
+                    alpha: 1,
+                    decay: Math.random() * 0.03 + 0.02
+                });
+            }
+        }
+
+        // 꽃 무작위 분포 초기화
+        function initFlowers() {
+            flowers = [];
+            const flowerColors = ["#ffccd5", "#ffb3c1", "#fff0f3", "#f72585", "#ffb703", "#7209b7", "#4cc9f0"];
+            for (let i = 0; i < 12; i++) {
+                flowers.push({
+                    x: Math.random() * (canvas.width - 40) + 20,
+                    y: Math.random() * (canvas.height - 40) + 20,
+                    size: Math.random() * 5 + 6,
+                    color: flowerColors[Math.floor(Math.random() * flowerColors.length)]
+                });
+            }
+        }
+
+        // 게임 요소 전체 초기화 및 시작
+        function initGame() {
+            score = 0;
+            scoreVal.innerText = score;
+            trashItems = [];
+            particles = [];
+            
+            resizeCanvas();
+            initFlowers();
+
+            // 7세 아이들이 편하게 누를 수 있는 넉넉한 분산 위치 지정
+            for (let i = 0; i < 5; i++) {
+                trashItems.push({
+                    x: Math.random() * (canvas.width - 100) + 50,
+                    y: Math.random() * (canvas.height - 120) + 60,
+                    size: 35, // 기존 25에서 터치하기 쉬운 적정 크기로 증가
+                    typeIndex: i % trashTypes.length,
+                    cleaned: false
+                });
+            }
+
+            // 모달 닫기
+            successModal.classList.add("hidden");
+            successModal.classList.remove("opacity-100");
+            successModal.querySelector(".transform").classList.add("scale-90");
+        }
+
+        // 예쁜 꽃 디자인 그리기 함수
+        function drawFlower(ctx, x, y, size, color) {
+            ctx.save();
+            ctx.fillStyle = color;
+            // 5개 꽃잎 그리기
+            for (let i = 0; i < 5; i++) {
+                ctx.beginPath();
+                const angle = (i * 2 * Math.PI) / 5;
+                const petX = x + Math.cos(angle) * (size * 0.7);
+                const petY = y + Math.sin(angle) * (size * 0.7);
+                ctx.arc(petX, petY, size * 0.6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            // 꽃 중심부 노랑색 수술
+            ctx.fillStyle = "#ffd166";
+            ctx.beginPath();
+            ctx.arc(x, y, size * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // 프레임 갱신용 메인 렌더링 루프 (반짝이 애니메이션을 실시간 업데이트하기 위함)
+        function updateAndDraw() {
+            // 잔디 배경
+            ctx.fillStyle = "#a7c957";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 잔디 결 느낌의 은은한 물결 선 드로잉
+            ctx.strokeStyle = "#90a955";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            for (let i = 50; i < canvas.height; i += 80) {
+                ctx.moveTo(30, i);
+                ctx.quadraticCurveTo(canvas.width / 2, i + 15, canvas.width - 30, i);
+            }
+            ctx.stroke();
+
+            // 배경 장식용 꽃 그리기
+            flowers.forEach(f => {
+                drawFlower(ctx, f.x, f.y, f.size, f.color);
+            });
+
+            // 쓰레기 오브젝트 그리기
+            trashItems.forEach(item => {
+                if (!item.cleaned) {
+                    // 유치하지 않고 깜찍하게 강조를 돕기 위한 은은한 흰색 가이드 서클
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath();
+                    ctx.arc(item.x, item.y, item.size * 1.1, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]); // 원상태 복구
+
+                    // 종류별 쓰레기 그림 그리기 호출
+                    const type = trashTypes[item.typeIndex];
+                    type.draw(ctx, item.x, item.y, item.size);
+
+                    // 터치 유도용 귀여운 지시선 '?' 혹은 '✨' 대신 반짝이는 효과
+                    ctx.fillStyle = "rgba(239, 68, 68, 0.8)";
+                    ctx.font = "bold 16px 'Gaegu'";
+                    ctx.fillText("TAP!", item.x - 14, item.y - item.size/1.4);
+                }
+            });
+
+            // 파티클(터치 이펙트) 그리기 및 수명 갱신
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                // 원형뿐만 아니라 별모양 같은 조각 느낌으로 드로잉
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                // 상태 최신화
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= p.decay;
+
+                // 수명이 다한 파티클 정리
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            requestAnimationFrame(updateAndDraw);
+        }
+
+        // 터치 및 클릭 처리 메인 로직
+        function handleTouchOrClick(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            // 캔버스 크기 대비 해상도 보정 비율 계산
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            const clickX = (clientX - rect.left) * scaleX;
+            const clickY = (clientY - rect.top) * scaleY;
+
+            let hit = false;
+
+            trashItems.forEach(item => {
+                if (!item.cleaned) {
+                    // 7세 아이들의 부드럽고 넉넉한 터치 인식을 위해 반경을 기본 사이즈의 1.6배로 설정
+                    const distance = Math.hypot(item.x - clickX, item.y - clickY);
+                    if (distance < item.size * 1.6) {
+                        item.cleaned = true;
+                        score++;
+                        scoreVal.innerText = score;
+                        hit = true;
+
+                        // 상큼하고 화려한 무지개빛 반짝이 터치 효과 생성
+                        createParticles(item.x, item.y, "#ffd166");
+                        createParticles(item.x, item.y, "#06d6a0");
+                        createParticles(item.x, item.y, "#118ab2");
+
+                        // 5개를 모두 치웠을 시 이쁜 요정 모달 오픈
+                        if (score === 5) {
+                            setTimeout(() => {
+                                showSuccessModal();
+                            }, 500);
+                        }
+                    }
+                }
+            });
+        }
+
+        // 수려한 등장 애니메이션 모달 노출
+        function showSuccessModal() {
+            successModal.classList.remove("hidden");
+            // 약간의 지연 시간을 주어 트랜지션 작동
+            setTimeout(() => {
+                successModal.classList.add("opacity-100");
+                successModal.querySelector(".transform").classList.remove("scale-90");
+                successModal.querySelector(".transform").classList.add("scale-100");
+            }, 50);
+        }
+
+        // 이벤트 리스너 연동
+        canvas.addEventListener("mousedown", (e) => {
+            handleTouchOrClick(e.clientX, e.clientY);
+        });
+
+        canvas.addEventListener("touchstart", (e) => {
+            e.preventDefault(); // 더블 터치 확대 방지 등 터치 친화적 액션 차단
+            const touch = e.touches[0];
+            handleTouchOrClick(touch.clientX, touch.clientY);
+        }, { passive: false });
+
+        // 다시 하기 버튼 핸들러
+        restartBtn.addEventListener("click", () => {
+            initGame();
+        });
+
+        // 윈도우 크기 변경 시 대응 및 초기 구동 시작
+        window.addEventListener("resize", () => {
+            resizeCanvas();
+            initFlowers();
+        });
+
+        window.onload = function () {
+            initGame();
+            updateAndDraw();
+        };
+    </script>
+</body>
+</html>
